@@ -6,7 +6,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>バーコード在庫カウンター</title>
-<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script src="https://unpkg.com/@ericblade/quagga2/dist/quagga.min.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   :root {
@@ -301,7 +301,7 @@
 <header>
   <div>
     <h1>📦 在庫カウンター</h1>
-    <div class="subtitle">バーコードで商品を管理 <span style="color:var(--accent);font-weight:700;">v1.1</span></div>
+    <div class="subtitle">バーコードで商品を管理 <span style="color:var(--accent);font-weight:700;">v1.2</span></div>
   </div>
   <div class="header-actions">
     <button class="icon-btn" onclick="exportCSV()" title="CSVエクスポート">📤</button>
@@ -318,7 +318,10 @@
 <!-- ===== スキャンページ ===== -->
 <div class="page active" id="page-scan">
   <div id="scanner-container">
-    <div id="reader"></div>
+    <div id="reader">
+      <video id="scanVideo" autoplay playsinline muted style="width:100%;height:100%;object-fit:cover;display:block;"></video>
+      <canvas id="scanCanvas" style="display:none;"></canvas>
+    </div>
     <div class="scan-overlay">
       <div class="scan-frame"></div>
       <div class="scan-line"></div>
@@ -408,7 +411,6 @@ let items = JSON.parse(localStorage.getItem('barcodeItems') || '{}');
 let history = JSON.parse(localStorage.getItem('barcodeHistory') || '[]');
 let currentBarcode = null;
 let sortMode = 'qty';
-let html5QrCode = null;
 let scanning = false;
 let editingBarcode = null;
 
@@ -427,44 +429,61 @@ function switchTab(tab) {
   if (tab === 'history') renderHistory();
 }
 
-// ===== スキャナー =====
+// ===== スキャナー (Quagga2) =====
+let stream = null;
+
 async function startScan() {
   if (scanning) return;
   try {
-    html5QrCode = new Html5Qrcode("reader", {
-      formatsToSupport: [
-        Html5QrcodeSupportedFormats.EAN_13,
-        Html5QrcodeSupportedFormats.EAN_8,
-        Html5QrcodeSupportedFormats.CODE_128,
-        Html5QrcodeSupportedFormats.CODE_39,
-        Html5QrcodeSupportedFormats.UPC_A,
-        Html5QrcodeSupportedFormats.UPC_E,
-        Html5QrcodeSupportedFormats.QR_CODE,
-      ]
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
     });
-    await html5QrCode.start(
-      { facingMode: "environment" },
-      {
-        fps: 15,
-        qrbox: { width: 280, height: 100 },
-        aspectRatio: 16/9,
-        experimentalFeatures: { useBarCodeDetectorIfSupported: true }
+    const video = document.getElementById('scanVideo');
+    video.srcObject = stream;
+    await video.play();
+
+    Quagga.init({
+      inputStream: {
+        type: 'LiveStream',
+        target: video,
+        constraints: { facingMode: 'environment' }
       },
-      onScanSuccess,
-      () => {}
-    );
-    scanning = true;
-    document.getElementById('startBtn').style.display = 'none';
-    document.getElementById('stopBtn').style.display = '';
+      decoder: {
+        readers: ['ean_reader', 'ean_8_reader', 'code_128_reader', 'upc_reader', 'upc_e_reader', 'code_39_reader'],
+        multiple: false
+      },
+      locate: true,
+      locator: { patchSize: 'medium', halfSample: true }
+    }, function(err) {
+      if (err) {
+        showToast('カメラを起動できませんでした', 'error');
+        console.error(err);
+        return;
+      }
+      Quagga.start();
+      scanning = true;
+      document.getElementById('startBtn').style.display = 'none';
+      document.getElementById('stopBtn').style.display = '';
+    });
+
+    Quagga.offDetected();
+    Quagga.onDetected(function(result) {
+      const code = result && result.codeResult && result.codeResult.code;
+      if (code) onScanSuccess(code);
+    });
+
   } catch(e) {
     showToast('カメラを起動できませんでした', 'error');
     console.error(e);
   }
 }
 
-async function stopScan() {
-  if (!scanning || !html5QrCode) return;
-  try { await html5QrCode.stop(); } catch(e) {}
+function stopScan() {
+  if (!scanning) return;
+  try { Quagga.stop(); } catch(e) {}
+  if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+  const video = document.getElementById('scanVideo');
+  video.srcObject = null;
   scanning = false;
   document.getElementById('startBtn').style.display = '';
   document.getElementById('stopBtn').style.display = 'none';
