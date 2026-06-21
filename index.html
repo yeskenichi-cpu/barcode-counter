@@ -301,7 +301,7 @@
 <header>
   <div>
     <h1>📦 在庫カウンター</h1>
-    <div class="subtitle">バーコードで商品を管理 <span style="color:var(--accent);font-weight:700;">v1.2</span></div>
+    <div class="subtitle">バーコードで商品を管理 <span style="color:var(--accent);font-weight:700;">v1.3</span></div>
   </div>
   <div class="header-actions">
     <button class="icon-btn" onclick="exportCSV()" title="CSVエクスポート">📤</button>
@@ -493,12 +493,14 @@ let lastScanned = '';
 let scanCooldown = false;
 
 async function onScanSuccess(barcode) {
+  // 13桁未満は不適合データとして破棄
+  if (!barcode || barcode.replace(/\D/g, '').length < 13) return;
+
   if (scanCooldown || barcode === lastScanned) return;
   scanCooldown = true;
   lastScanned = barcode;
   setTimeout(() => { scanCooldown = false; }, 2000);
 
-  // 振動フィードバック
   if (navigator.vibrate) navigator.vibrate(50);
 
   currentBarcode = barcode;
@@ -512,8 +514,8 @@ async function onScanSuccess(barcode) {
   nameDisplay.textContent = '商品名を取得中...';
   nameEdit.value = '';
 
-  // 既存データがあれば名前を使用
-  if (items[barcode]) {
+  // 既存データがあれば名前を使用（バーコード番号そのままは除外）
+  if (items[barcode] && items[barcode].name !== barcode) {
     nameDisplay.textContent = items[barcode].name;
     nameDisplay.className = 'product-name';
     nameEdit.value = items[barcode].name;
@@ -523,8 +525,8 @@ async function onScanSuccess(barcode) {
   // Open Food Facts API で商品名取得
   const name = await fetchProductName(barcode);
   nameDisplay.textContent = name;
-  nameDisplay.className = 'product-name';
-  nameEdit.value = name;
+  nameDisplay.className = name === '(商品名不明)' ? 'product-name loading' : 'product-name';
+  nameEdit.value = name === '(商品名不明)' ? '' : name;
 }
 
 async function fetchProductName(barcode) {
@@ -532,13 +534,14 @@ async function fetchProductName(barcode) {
     const res = await fetch(`https://world.openfoodfacts.org/api/v0/product/${barcode}.json`);
     const data = await res.json();
     if (data.status === 1 && data.product) {
-      return data.product.product_name_ja
+      const name = data.product.product_name_ja
         || data.product.product_name
         || data.product.abbreviated_product_name
-        || '(名称不明)';
+        || '';
+      if (name.trim()) return name.trim();
     }
   } catch(e) {}
-  return barcode; // 取得失敗時はバーコード番号を名前として使用
+  return '(商品名不明)';
 }
 
 function changeQty(delta) {
