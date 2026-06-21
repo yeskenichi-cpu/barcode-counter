@@ -301,7 +301,7 @@
 <header>
   <div>
     <h1>📦 在庫カウンター</h1>
-    <div class="subtitle">バーコードで商品を管理 <span style="color:var(--accent);font-weight:700;">v1.3</span></div>
+    <div class="subtitle">バーコードで商品を管理 <span style="color:var(--accent);font-weight:700;">v1.4</span></div>
   </div>
   <div class="header-actions">
     <button class="icon-btn" onclick="exportCSV()" title="CSVエクスポート">📤</button>
@@ -530,8 +530,14 @@ async function onScanSuccess(barcode) {
 }
 
 async function fetchProductName(barcode) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5000);
   try {
-    const res = await fetch(`https://world.openfoodfacts.org/api/v0/product/${barcode}.json`);
+    const res = await fetch(
+      `https://world.openfoodfacts.org/api/v0/product/${barcode}.json`,
+      { signal: controller.signal }
+    );
+    clearTimeout(timer);
     const data = await res.json();
     if (data.status === 1 && data.product) {
       const name = data.product.product_name_ja
@@ -540,7 +546,9 @@ async function fetchProductName(barcode) {
         || '';
       if (name.trim()) return name.trim();
     }
-  } catch(e) {}
+  } catch(e) {
+    clearTimeout(timer);
+  }
   return '(商品名不明)';
 }
 
