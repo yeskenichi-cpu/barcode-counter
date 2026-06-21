@@ -1,0 +1,710 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>バーコード在庫カウンター</title>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0f172a;
+    --surface: #1e293b;
+    --surface2: #334155;
+    --accent: #38bdf8;
+    --accent2: #818cf8;
+    --green: #4ade80;
+    --red: #f87171;
+    --text: #f1f5f9;
+    --muted: #94a3b8;
+    --radius: 14px;
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  /* ===== ヘッダー ===== */
+  header {
+    background: var(--surface);
+    padding: 16px 20px;
+    padding-top: calc(16px + env(safe-area-inset-top));
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--surface2);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  header h1 { font-size: 18px; font-weight: 700; }
+  header .subtitle { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .header-actions { display: flex; gap: 8px; }
+  .icon-btn {
+    background: var(--surface2);
+    border: none;
+    color: var(--text);
+    width: 36px; height: 36px;
+    border-radius: 10px;
+    font-size: 18px;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  /* ===== タブ ===== */
+  .tabs {
+    display: flex;
+    background: var(--surface);
+    border-bottom: 1px solid var(--surface2);
+    position: sticky;
+    top: calc(68px + env(safe-area-inset-top));
+    z-index: 99;
+  }
+  .tab {
+    flex: 1; padding: 12px 8px; text-align: center;
+    font-size: 13px; font-weight: 600; color: var(--muted);
+    background: none; border: none; cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.2s;
+  }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  /* ===== メインコンテンツ ===== */
+  .page { display: none; padding: 16px; }
+  .page.active { display: block; }
+
+  /* ===== スキャナー ===== */
+  #scanner-container {
+    background: #000;
+    border-radius: var(--radius);
+    overflow: hidden;
+    position: relative;
+    aspect-ratio: 4/3;
+    max-height: 280px;
+  }
+  #reader { width: 100%; height: 100%; }
+  #reader video { object-fit: cover; }
+  .scan-overlay {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    pointer-events: none;
+  }
+  .scan-frame {
+    width: 220px; height: 120px;
+    border: 2px solid var(--accent);
+    border-radius: 8px;
+    box-shadow: 0 0 0 2000px rgba(0,0,0,0.4);
+  }
+  .scan-line {
+    position: absolute;
+    left: 50%; top: 50%;
+    transform: translate(-50%, -60px);
+    width: 200px; height: 2px;
+    background: var(--accent);
+    animation: scan 2s ease-in-out infinite;
+    opacity: 0.8;
+  }
+  @keyframes scan {
+    0%, 100% { transform: translate(-50%, -60px); }
+    50% { transform: translate(-50%, 60px); }
+  }
+  .scanner-btn-row {
+    display: flex; gap: 10px; margin-top: 12px;
+  }
+  .btn {
+    flex: 1; padding: 14px;
+    border-radius: var(--radius);
+    border: none; font-size: 15px; font-weight: 600;
+    cursor: pointer; transition: opacity 0.2s;
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+  }
+  .btn:active { opacity: 0.7; }
+  .btn-primary { background: var(--accent); color: #0f172a; }
+  .btn-danger  { background: var(--red); color: #0f172a; }
+  .btn-neutral { background: var(--surface2); color: var(--text); }
+
+  /* ===== スキャン結果パネル ===== */
+  .result-panel {
+    background: var(--surface);
+    border-radius: var(--radius);
+    padding: 16px;
+    margin-top: 14px;
+  }
+  .result-panel .label { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+  .result-panel .barcode-val { font-size: 22px; font-weight: 700; color: var(--accent); letter-spacing: 2px; }
+  .result-panel .product-name {
+    font-size: 16px; margin-top: 8px; font-weight: 600;
+    min-height: 24px;
+  }
+  .result-panel .product-name.loading { color: var(--muted); font-style: italic; }
+  .qty-row { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
+  .qty-btn {
+    width: 44px; height: 44px; border-radius: 12px; border: none;
+    font-size: 24px; font-weight: 700; cursor: pointer;
+    background: var(--surface2); color: var(--text);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .qty-input {
+    flex: 1; background: var(--surface2); border: 2px solid var(--surface2);
+    color: var(--text); font-size: 24px; font-weight: 700;
+    text-align: center; padding: 8px; border-radius: 12px;
+    height: 44px; outline: none;
+  }
+  .qty-input:focus { border-color: var(--accent); }
+  .name-edit {
+    width: 100%; background: var(--surface2); border: 2px solid var(--surface2);
+    color: var(--text); font-size: 15px; padding: 10px 12px;
+    border-radius: 10px; margin-top: 8px; outline: none;
+  }
+  .name-edit:focus { border-color: var(--accent2); }
+  .add-btn { margin-top: 12px; width: 100%; padding: 16px; }
+
+  /* 手動入力 */
+  .manual-section {
+    background: var(--surface);
+    border-radius: var(--radius);
+    padding: 16px;
+    margin-top: 12px;
+  }
+  .manual-section h3 { font-size: 14px; color: var(--muted); margin-bottom: 12px; }
+  .input-field {
+    width: 100%; background: var(--surface2); border: 2px solid var(--surface2);
+    color: var(--text); font-size: 15px; padding: 12px;
+    border-radius: 10px; outline: none; margin-bottom: 10px;
+  }
+  .input-field:focus { border-color: var(--accent); }
+
+  /* ===== 集計ページ ===== */
+  .summary-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 14px;
+  }
+  .summary-header h2 { font-size: 16px; font-weight: 700; }
+  .total-badge {
+    background: var(--accent); color: #0f172a;
+    padding: 4px 12px; border-radius: 20px;
+    font-size: 13px; font-weight: 700;
+  }
+  .sort-row {
+    display: flex; gap: 8px; margin-bottom: 14px;
+    overflow-x: auto; padding-bottom: 4px;
+  }
+  .sort-btn {
+    white-space: nowrap; padding: 6px 14px; border-radius: 20px;
+    border: 1px solid var(--surface2); background: var(--surface2);
+    color: var(--muted); font-size: 12px; cursor: pointer;
+  }
+  .sort-btn.active { background: var(--accent); color: #0f172a; border-color: var(--accent); }
+  .item-card {
+    background: var(--surface);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    margin-bottom: 10px;
+    display: flex; align-items: center; gap: 12px;
+    position: relative;
+  }
+  .item-rank {
+    width: 28px; height: 28px; border-radius: 50%;
+    background: var(--surface2); color: var(--muted);
+    font-size: 12px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .item-rank.gold   { background: #fbbf24; color: #0f172a; }
+  .item-rank.silver { background: #94a3b8; color: #0f172a; }
+  .item-rank.bronze { background: #b45309; color: #fff; }
+  .item-info { flex: 1; min-width: 0; }
+  .item-name { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .item-barcode { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .item-qty {
+    font-size: 28px; font-weight: 800; color: var(--accent);
+    flex-shrink: 0;
+  }
+  .item-actions {
+    display: flex; gap: 6px; flex-shrink: 0;
+  }
+  .action-btn {
+    width: 32px; height: 32px; border-radius: 8px; border: none;
+    background: var(--surface2); color: var(--muted);
+    font-size: 14px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .empty-state {
+    text-align: center; padding: 60px 20px; color: var(--muted);
+  }
+  .empty-state .icon { font-size: 48px; margin-bottom: 12px; }
+  .empty-state p { font-size: 15px; }
+
+  /* ===== 履歴ページ ===== */
+  .history-item {
+    background: var(--surface);
+    border-radius: var(--radius);
+    padding: 12px 16px;
+    margin-bottom: 8px;
+    display: flex; align-items: center; gap: 12px;
+  }
+  .history-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--green); flex-shrink: 0;
+  }
+  .history-info { flex: 1; min-width: 0; }
+  .history-name { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .history-meta { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .history-qty { font-size: 18px; font-weight: 700; color: var(--green); }
+
+  /* ===== Toast ===== */
+  #toast {
+    position: fixed; bottom: calc(20px + env(safe-area-inset-bottom));
+    left: 50%; transform: translateX(-50%) translateY(100px);
+    background: var(--surface2); color: var(--text);
+    padding: 12px 24px; border-radius: 30px;
+    font-size: 14px; font-weight: 600;
+    transition: transform 0.3s ease;
+    z-index: 9999;
+    white-space: nowrap;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+  }
+  #toast.show { transform: translateX(-50%) translateY(0); }
+  #toast.success { background: var(--green); color: #0f172a; }
+  #toast.error   { background: var(--red);  color: #0f172a; }
+
+  /* ===== モーダル ===== */
+  .modal-bg {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,0.7); z-index: 500;
+    align-items: flex-end; justify-content: center;
+  }
+  .modal-bg.open { display: flex; }
+  .modal {
+    background: var(--surface);
+    border-radius: var(--radius) var(--radius) 0 0;
+    padding: 20px;
+    padding-bottom: calc(20px + env(safe-area-inset-bottom));
+    width: 100%;
+    animation: slideUp 0.3s ease;
+  }
+  @keyframes slideUp { from { transform: translateY(100%); } }
+  .modal h3 { font-size: 16px; font-weight: 700; margin-bottom: 16px; }
+  .modal-actions { display: flex; gap: 10px; margin-top: 14px; }
+
+  /* CSVエクスポートの確認 */
+  .export-note { font-size: 13px; color: var(--muted); margin-top: 8px; text-align: center; }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>📦 在庫カウンター</h1>
+    <div class="subtitle">バーコードで商品を管理</div>
+  </div>
+  <div class="header-actions">
+    <button class="icon-btn" onclick="exportCSV()" title="CSVエクスポート">📤</button>
+    <button class="icon-btn" onclick="showClearModal()" title="全件削除">🗑️</button>
+  </div>
+</header>
+
+<div class="tabs">
+  <button class="tab active" onclick="switchTab('scan')">📷 スキャン</button>
+  <button class="tab" onclick="switchTab('summary')">📊 集計</button>
+  <button class="tab" onclick="switchTab('history')">📋 履歴</button>
+</div>
+
+<!-- ===== スキャンページ ===== -->
+<div class="page active" id="page-scan">
+  <div id="scanner-container">
+    <div id="reader"></div>
+    <div class="scan-overlay">
+      <div class="scan-frame"></div>
+      <div class="scan-line"></div>
+    </div>
+  </div>
+
+  <div class="scanner-btn-row">
+    <button class="btn btn-primary" id="startBtn" onclick="startScan()">▶ スキャン開始</button>
+    <button class="btn btn-neutral" id="stopBtn" onclick="stopScan()" style="display:none">⏹ 停止</button>
+  </div>
+
+  <div class="result-panel" id="resultPanel" style="display:none">
+    <div class="label">スキャン結果</div>
+    <div class="barcode-val" id="barcodeDisplay">—</div>
+    <div class="product-name" id="productNameDisplay">商品名を取得中...</div>
+    <input class="name-edit" id="nameEdit" type="text" placeholder="商品名を編集できます" />
+    <div class="qty-row">
+      <button class="qty-btn" onclick="changeQty(-1)">−</button>
+      <input class="qty-input" id="qtyInput" type="number" value="1" min="1" max="9999" inputmode="numeric" />
+      <button class="qty-btn" onclick="changeQty(1)">＋</button>
+    </div>
+    <button class="btn btn-primary add-btn" onclick="addToList()">✅ 追加する</button>
+  </div>
+
+  <div class="manual-section">
+    <h3>✏️ 手動入力</h3>
+    <input class="input-field" id="manualBarcode" type="text" placeholder="バーコード番号" inputmode="numeric" />
+    <input class="input-field" id="manualName" type="text" placeholder="商品名" />
+    <input class="input-field" id="manualQty" type="number" placeholder="数量" value="1" min="1" inputmode="numeric" />
+    <button class="btn btn-neutral" onclick="addManual()">手動で追加</button>
+  </div>
+</div>
+
+<!-- ===== 集計ページ ===== -->
+<div class="page" id="page-summary">
+  <div class="summary-header">
+    <h2>商品ごとの合計</h2>
+    <div class="total-badge" id="totalBadge">0 種類</div>
+  </div>
+  <div class="sort-row">
+    <button class="sort-btn active" onclick="setSort('qty')" id="sort-qty">数量順</button>
+    <button class="sort-btn" onclick="setSort('name')" id="sort-name">名前順</button>
+    <button class="sort-btn" onclick="setSort('barcode')" id="sort-barcode">バーコード順</button>
+  </div>
+  <div id="summaryList"></div>
+</div>
+
+<!-- ===== 履歴ページ ===== -->
+<div class="page" id="page-history">
+  <div class="summary-header">
+    <h2>スキャン履歴</h2>
+    <button class="btn btn-neutral" style="padding:8px 14px;font-size:12px;flex:0" onclick="clearHistory()">履歴クリア</button>
+  </div>
+  <div id="historyList"></div>
+</div>
+
+<!-- ===== モーダル ===== -->
+<div class="modal-bg" id="clearModal">
+  <div class="modal">
+    <h3>🗑️ 全データを削除しますか？</h3>
+    <p style="color:var(--muted);font-size:14px">集計データと履歴がすべて削除されます。この操作は元に戻せません。</p>
+    <div class="modal-actions">
+      <button class="btn btn-neutral" onclick="closeClearModal()">キャンセル</button>
+      <button class="btn btn-danger" onclick="clearAll()">削除する</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="editModal">
+  <div class="modal">
+    <h3>✏️ 数量を編集</h3>
+    <input class="input-field" id="editName" type="text" placeholder="商品名" />
+    <input class="input-field" id="editQty" type="number" placeholder="合計数量" min="0" inputmode="numeric" />
+    <div class="modal-actions">
+      <button class="btn btn-neutral" onclick="closeEditModal()">キャンセル</button>
+      <button class="btn btn-primary" onclick="saveEdit()">保存</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ===== データ管理 =====
+let items = JSON.parse(localStorage.getItem('barcodeItems') || '{}');
+// items: { barcode: { name, qty } }
+let history = JSON.parse(localStorage.getItem('barcodeHistory') || '[]');
+let currentBarcode = null;
+let sortMode = 'qty';
+let html5QrCode = null;
+let scanning = false;
+let editingBarcode = null;
+
+function save() {
+  localStorage.setItem('barcodeItems', JSON.stringify(items));
+  localStorage.setItem('barcodeHistory', JSON.stringify(history));
+}
+
+// ===== タブ =====
+function switchTab(tab) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('page-' + tab).classList.add('active');
+  document.querySelectorAll('.tab')[['scan','summary','history'].indexOf(tab)].classList.add('active');
+  if (tab === 'summary') renderSummary();
+  if (tab === 'history') renderHistory();
+}
+
+// ===== スキャナー =====
+async function startScan() {
+  if (scanning) return;
+  try {
+    html5QrCode = new Html5Qrcode("reader");
+    await html5QrCode.start(
+      { facingMode: "environment" },
+      { fps: 10, qrbox: { width: 220, height: 120 }, aspectRatio: 4/3 },
+      onScanSuccess,
+      () => {}
+    );
+    scanning = true;
+    document.getElementById('startBtn').style.display = 'none';
+    document.getElementById('stopBtn').style.display = '';
+  } catch(e) {
+    showToast('カメラを起動できませんでした', 'error');
+    console.error(e);
+  }
+}
+
+async function stopScan() {
+  if (!scanning || !html5QrCode) return;
+  try { await html5QrCode.stop(); } catch(e) {}
+  scanning = false;
+  document.getElementById('startBtn').style.display = '';
+  document.getElementById('stopBtn').style.display = 'none';
+}
+
+let lastScanned = '';
+let scanCooldown = false;
+
+async function onScanSuccess(barcode) {
+  if (scanCooldown || barcode === lastScanned) return;
+  scanCooldown = true;
+  lastScanned = barcode;
+  setTimeout(() => { scanCooldown = false; }, 2000);
+
+  // 振動フィードバック
+  if (navigator.vibrate) navigator.vibrate(50);
+
+  currentBarcode = barcode;
+  document.getElementById('barcodeDisplay').textContent = barcode;
+  document.getElementById('qtyInput').value = 1;
+  document.getElementById('resultPanel').style.display = '';
+
+  const nameDisplay = document.getElementById('productNameDisplay');
+  const nameEdit = document.getElementById('nameEdit');
+  nameDisplay.className = 'product-name loading';
+  nameDisplay.textContent = '商品名を取得中...';
+  nameEdit.value = '';
+
+  // 既存データがあれば名前を使用
+  if (items[barcode]) {
+    nameDisplay.textContent = items[barcode].name;
+    nameDisplay.className = 'product-name';
+    nameEdit.value = items[barcode].name;
+    return;
+  }
+
+  // Open Food Facts API で商品名取得
+  const name = await fetchProductName(barcode);
+  nameDisplay.textContent = name;
+  nameDisplay.className = 'product-name';
+  nameEdit.value = name;
+}
+
+async function fetchProductName(barcode) {
+  try {
+    const res = await fetch(`https://world.openfoodfacts.org/api/v0/product/${barcode}.json`);
+    const data = await res.json();
+    if (data.status === 1 && data.product) {
+      return data.product.product_name_ja
+        || data.product.product_name
+        || data.product.abbreviated_product_name
+        || '(名称不明)';
+    }
+  } catch(e) {}
+  return barcode; // 取得失敗時はバーコード番号を名前として使用
+}
+
+function changeQty(delta) {
+  const input = document.getElementById('qtyInput');
+  const v = Math.max(1, (parseInt(input.value) || 1) + delta);
+  input.value = v;
+}
+
+function addToList() {
+  if (!currentBarcode) return;
+  const qty = parseInt(document.getElementById('qtyInput').value) || 1;
+  const name = document.getElementById('nameEdit').value.trim() || currentBarcode;
+
+  if (!items[currentBarcode]) {
+    items[currentBarcode] = { name, qty: 0 };
+  }
+  items[currentBarcode].name = name;
+  items[currentBarcode].qty += qty;
+
+  history.unshift({
+    barcode: currentBarcode,
+    name,
+    qty,
+    time: new Date().toISOString()
+  });
+  if (history.length > 200) history = history.slice(0, 200);
+
+  save();
+  showToast(`✅ ${name} ×${qty} 追加しました`, 'success');
+  document.getElementById('resultPanel').style.display = 'none';
+  currentBarcode = null;
+  lastScanned = '';
+}
+
+// ===== 手動入力 =====
+async function addManual() {
+  const barcode = document.getElementById('manualBarcode').value.trim();
+  let name = document.getElementById('manualName').value.trim();
+  const qty = parseInt(document.getElementById('manualQty').value) || 1;
+  if (!barcode) { showToast('バーコードを入力してください', 'error'); return; }
+  if (!name) {
+    name = await fetchProductName(barcode);
+  }
+  if (!items[barcode]) items[barcode] = { name, qty: 0 };
+  items[barcode].name = name;
+  items[barcode].qty += qty;
+  history.unshift({ barcode, name, qty, time: new Date().toISOString() });
+  save();
+  showToast(`✅ ${name} ×${qty} 追加しました`, 'success');
+  document.getElementById('manualBarcode').value = '';
+  document.getElementById('manualName').value = '';
+  document.getElementById('manualQty').value = 1;
+}
+
+// ===== 集計ページ =====
+function setSort(mode) {
+  sortMode = mode;
+  document.querySelectorAll('.sort-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('sort-' + mode).classList.add('active');
+  renderSummary();
+}
+
+function renderSummary() {
+  const list = document.getElementById('summaryList');
+  const badge = document.getElementById('totalBadge');
+  const entries = Object.entries(items);
+  badge.textContent = entries.length + ' 種類';
+
+  if (entries.length === 0) {
+    list.innerHTML = `<div class="empty-state"><div class="icon">📦</div><p>まだデータがありません<br>バーコードをスキャンしてください</p></div>`;
+    return;
+  }
+
+  let sorted = [...entries];
+  if (sortMode === 'qty') sorted.sort((a,b) => b[1].qty - a[1].qty);
+  if (sortMode === 'name') sorted.sort((a,b) => a[1].name.localeCompare(b[1].name, 'ja'));
+  if (sortMode === 'barcode') sorted.sort((a,b) => a[0].localeCompare(b[0]));
+
+  list.innerHTML = sorted.map(([barcode, item], i) => {
+    const rankClass = i === 0 ? 'gold' : i === 1 ? 'silver' : i === 2 ? 'bronze' : '';
+    return `
+    <div class="item-card">
+      <div class="item-rank ${rankClass}">${i+1}</div>
+      <div class="item-info">
+        <div class="item-name">${esc(item.name)}</div>
+        <div class="item-barcode">${esc(barcode)}</div>
+      </div>
+      <div class="item-qty">${item.qty}</div>
+      <div class="item-actions">
+        <button class="action-btn" onclick="showEditModal('${esc(barcode)}')" title="編集">✏️</button>
+        <button class="action-btn" onclick="deleteItem('${esc(barcode)}')" title="削除">🗑️</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function showEditModal(barcode) {
+  editingBarcode = barcode;
+  document.getElementById('editName').value = items[barcode]?.name || '';
+  document.getElementById('editQty').value = items[barcode]?.qty || 0;
+  document.getElementById('editModal').classList.add('open');
+}
+function closeEditModal() { document.getElementById('editModal').classList.remove('open'); editingBarcode = null; }
+function saveEdit() {
+  if (!editingBarcode) return;
+  const name = document.getElementById('editName').value.trim();
+  const qty = parseInt(document.getElementById('editQty').value) || 0;
+  if (qty <= 0) { deleteItem(editingBarcode); closeEditModal(); return; }
+  items[editingBarcode] = { name: name || editingBarcode, qty };
+  save();
+  closeEditModal();
+  renderSummary();
+  showToast('更新しました', 'success');
+}
+function deleteItem(barcode) {
+  if (!confirm(`「${items[barcode]?.name}」を削除しますか？`)) return;
+  delete items[barcode];
+  save();
+  renderSummary();
+  showToast('削除しました');
+}
+
+// ===== 履歴ページ =====
+function renderHistory() {
+  const list = document.getElementById('historyList');
+  if (history.length === 0) {
+    list.innerHTML = `<div class="empty-state"><div class="icon">📋</div><p>履歴がありません</p></div>`;
+    return;
+  }
+  list.innerHTML = history.map(h => {
+    const d = new Date(h.time);
+    const timeStr = d.toLocaleDateString('ja-JP') + ' ' + d.toLocaleTimeString('ja-JP', {hour:'2-digit',minute:'2-digit'});
+    return `
+    <div class="history-item">
+      <div class="history-dot"></div>
+      <div class="history-info">
+        <div class="history-name">${esc(h.name)}</div>
+        <div class="history-meta">${esc(h.barcode)} · ${timeStr}</div>
+      </div>
+      <div class="history-qty">+${h.qty}</div>
+    </div>`;
+  }).join('');
+}
+function clearHistory() {
+  if (!confirm('履歴をすべて削除しますか？')) return;
+  history = [];
+  save();
+  renderHistory();
+  showToast('履歴を削除しました');
+}
+
+// ===== CSV エクスポート =====
+function exportCSV() {
+  const entries = Object.entries(items);
+  if (entries.length === 0) { showToast('データがありません', 'error'); return; }
+  const bom = '﻿';
+  const header = 'バーコード,商品名,合計数量\n';
+  const rows = entries.map(([b, item]) => `"${b}","${item.name.replace(/"/g,'""')}",${item.qty}`).join('\n');
+  const blob = new Blob([bom + header + rows], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const now = new Date();
+  a.download = `在庫カウント_${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('CSVをダウンロードしました', 'success');
+}
+
+// ===== 全削除 =====
+function showClearModal() { document.getElementById('clearModal').classList.add('open'); }
+function closeClearModal() { document.getElementById('clearModal').classList.remove('open'); }
+function clearAll() {
+  items = {}; history = [];
+  save();
+  closeClearModal();
+  renderSummary();
+  renderHistory();
+  showToast('全データを削除しました');
+}
+
+// ===== Toast =====
+let toastTimer;
+function showToast(msg, type = '') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = type ? `show ${type}` : 'show';
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.className = type; }, 2500);
+}
+
+// ===== ユーティリティ =====
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// モーダル外タップで閉じる
+document.querySelectorAll('.modal-bg').forEach(bg => {
+  bg.addEventListener('click', e => { if (e.target === bg) bg.classList.remove('open'); });
+});
+</script>
+</body>
+</html>
